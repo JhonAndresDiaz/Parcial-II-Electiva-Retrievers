@@ -1,0 +1,9 @@
+langchain==1.0.0
+langchain-google-genai
+langchain-community
+python-dotenv
+streamlit
+chromadb
+pypdf
+rank_bm25
+fpdf2
