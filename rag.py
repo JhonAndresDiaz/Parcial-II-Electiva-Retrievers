@@ -15,12 +15,9 @@ from langchain_core.runnables import RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 import os
 
-# ── Configuración ─────────────────────────────────────────────────────────────
 DOCS_PATH = "./docs"
 DB_PATH   = "./chroma_db"
 
-
-# ── Modelo Pydantic para análisis estructurado (como en eam_pydantic.py) ──────
 class AnalisisNecesidad(BaseModel):
     tipo_producto: str = Field(
         description="Tipo de producto que busca: celular, laptop, tablet, etc."
@@ -35,8 +32,6 @@ class AnalisisNecesidad(BaseModel):
         description="Para qué usará el producto principalmente"
     )
 
-
-# ── 1. CREAR BASE VECTORIAL (SOLO UNA VEZ) ───────────────────────────────────
 def create_vector_db():
     chroma_file = os.path.join(DB_PATH, "chroma.sqlite3")
     if os.path.exists(chroma_file):
@@ -64,42 +59,18 @@ def create_vector_db():
     print(f"Base vectorial creada — {len(chunks)} chunks de {len(docs)} páginas.")
 
 
-# ── 2. CARGAR CHUNKS PARA BM25 ────────────────────────────────────────────────
 def _cargar_chunks():
     loader = PyPDFDirectoryLoader(DOCS_PATH)
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     return splitter.split_documents(docs)
 
-
-# ── 3. CADENA LCEL CON 4 RUNNABLES ───────────────────────────────────────────
-#
-#  consulta del usuario (str)
-#      │
-#      ▼  runnable1 — Análisis de necesidad
-#      │   LLM + Pydantic (igual a eam_pydantic.py)
-#      │   Extrae: tipo, presupuesto, características, uso
-#      │   Salida: {"consulta": str, "analisis": AnalisisNecesidad}
-#      │
-#      ▼  runnable2 — Extracción de criterios
-#      │   Arma un query optimizado para la búsqueda RAG
-#      │   Salida: {"consulta": str, "analisis": ..., "query": str}
-#      │
-#      ▼  runnable3 — RAG con EnsembleRetriever
-#      │   BM25 (40%) + Chroma (60%) — DIFERENTE a los de clase
-#      │   Recupera fragmentos relevantes de los PDFs
-#      │   Salida: {"consulta": str, "analisis": str, "contexto": str}
-#      │
-#      ▼  runnable4 — Recomendación razonada
-#          PromptTemplate | LLM | StrOutputParser
-#          Salida: str (respuesta final)
-#
 def build_chain():
     embeddings = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
     chunks     = _cargar_chunks()
     llm        = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
 
-    # Chroma — búsqueda semántica sobre los PDFs
+    # Chroma — búsqueda semántica
     vectorstore = Chroma(
         embedding_function=embeddings,
         persist_directory=DB_PATH
@@ -109,19 +80,16 @@ def build_chain():
         search_kwargs={"k": 4}
     )
 
-    # BM25 — búsqueda léxica sobre los mismos chunks
+    # BM25 — búsqueda léxica
     bm25_retriever = BM25Retriever.from_documents(chunks)
     bm25_retriever.k = 4
 
-    # EnsembleRetriever (retriever diferente a los vistos en clase)
     ensemble_retriever = EnsembleRetriever(
         retrievers=[bm25_retriever, chroma_retriever],
         weights=[0.4, 0.6]
     )
 
-    # ── RUNNABLE 1 — Análisis de necesidad ───────────────────────────────────
-    # Entrada : str
-    # Salida  : {"consulta": str, "analisis": AnalisisNecesidad}
+    # ── RUNNABLE 1 — Análisis de necesidad ──
     prompt_analisis = PromptTemplate(
         template="Analiza esta consulta de compra y extrae la información clave:\n\n{consulta}",
         input_variables=["consulta"]
@@ -134,9 +102,7 @@ def build_chain():
 
     runnable1 = RunnableLambda(analizar_necesidad)
 
-    # ── RUNNABLE 2 — Extracción de criterios ─────────────────────────────────
-    # Entrada : {"consulta": str, "analisis": AnalisisNecesidad}
-    # Salida  : {"consulta": str, "analisis": ..., "query": str}
+    # ── RUNNABLE 2 — Extracción de criterios ──
     def extraer_criterios(entrada):
         a = entrada["analisis"]
         query = f"{a.tipo_producto} {' '.join(a.caracteristicas)} {a.uso_principal}"
@@ -146,9 +112,7 @@ def build_chain():
 
     runnable2 = RunnableLambda(extraer_criterios)
 
-    # ── RUNNABLE 3 — RAG con EnsembleRetriever ───────────────────────────────
-    # Entrada : {"consulta": str, "analisis": AnalisisNecesidad, "query": str}
-    # Salida  : {"consulta": str, "analisis": str, "contexto": str}
+    # ── RUNNABLE 3 — RAG con EnsembleRetriever ──
     def recuperar_productos(entrada):
         docs = ensemble_retriever.invoke(entrada["query"])
         contexto = "\n\n".join(
@@ -170,9 +134,7 @@ def build_chain():
 
     runnable3 = RunnableLambda(recuperar_productos)
 
-    # ── RUNNABLE 4 — Recomendación razonada ──────────────────────────────────
-    # Entrada : {"consulta": str, "analisis": str, "contexto": str}
-    # Salida  : str
+    # ── RUNNABLE 4 — Recomendación razonada ──
     prompt_recomendacion = PromptTemplate(
         template="""Eres un asistente de compras experto y amigable.
 
@@ -199,13 +161,11 @@ Termina con una recomendación final clara.""",
         | StrOutputParser()
     )
 
-    # ── CADENA: runnable1 | runnable2 | runnable3 | runnable4 ────────────────
     chain = runnable1 | runnable2 | runnable3 | runnable4
 
     return chain, ensemble_retriever
 
 
-# ── Función pública usada por app.py ─────────────────────────────────────────
 def query_rag(consulta: str):
     chain, retriever = build_chain()
     respuesta = chain.invoke(consulta)

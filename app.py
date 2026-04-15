@@ -18,32 +18,6 @@ inicializar()
 with st.sidebar:
     st.header("¿Cómo funciona?")
     st.markdown("""
-**Cadena LCEL — 4 Runnables**
-
-```
-Tu consulta (str)
-    │
-    ▼ Runnable 1
-    Análisis de necesidad
-    LLM + Pydantic
-    → tipo, presupuesto,
-      características, uso
-    │
-    ▼ Runnable 2
-    Extracción de criterios
-    → query optimizado
-      para búsqueda RAG
-    │
-    ▼ Runnable 3
-    RAG — EnsembleRetriever
-    BM25 (40%) + Chroma (60%)
-    → fragmentos de los PDFs
-    │
-    ▼ Runnable 4
-    Recomendación razonada
-    Gemini 2.5 Flash
-    → recomendación final
-```
 
 ---
 **Retriever usado**
@@ -53,15 +27,6 @@ Tu consulta (str)
 - **Chroma**: busca por significado semántico
 - Fusión con **Reciprocal Rank Fusion**
 
-Diferente a los vistos en clase:
-- VectorstoreRetriever
-- MultiQueryRetriever
-
----
-**Fuentes de conocimiento**
-- 📱 smartphones_guide_updated.pdf
-- 💻 laptops_full.pdf
-- 📟 tablets_full.pdf
 """)
 
     st.divider()
@@ -71,11 +36,9 @@ Diferente a los vistos en clase:
     st.caption("¿Qué tablet me sirve para dibujar?")
     st.caption("Busco un smartphone con buena batería para viajes")
 
-# ── Título principal ──────────────────────────────────────────────────────────
 st.title("Asistente de Compras Inteligente")
 st.caption("Describe lo que necesitas y te recomendaré los mejores productos de nuestros PDFs de smartphones, laptops y tablets.")
 
-# ── Historial de mensajes ─────────────────────────────────────────────────────
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -88,7 +51,6 @@ for msg in st.session_state.messages:
                     st.write(f"**Producto {i}:**")
                     st.write(doc.page_content[:300])
 
-# ── Entrada del usuario ───────────────────────────────────────────────────────
 if consulta := st.chat_input("¿Qué producto estás buscando?"):
 
     st.session_state.messages.append({"role": "user", "content": consulta})
